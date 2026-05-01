@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+archive/
+outputs/
+outputs_*/
+notebooks/
+*.ipynb
+Pipeline.wav files.wav files)
+generate_status_report.py
+test_video.py
