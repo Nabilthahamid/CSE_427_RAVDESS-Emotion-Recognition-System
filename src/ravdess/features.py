@@ -512,19 +512,22 @@ def save_feature_table(features: pd.DataFrame, output_path: str | Path) -> None:
 # VIDEO FEATURE EXTRACTION (40 dimensions)
 # =============================================================================
 
-def extract_video_features_from_file(file_path: str, n_frames: int = 5) -> np.ndarray:
+def extract_video_features_from_file(file_path: str, n_frames: int = 10) -> np.ndarray:
     """
-    Extract 40 video features from a .mp4 file (simplified, fast version).
+    Extract 40 video features from a .mp4 file.
     
     FEATURES (40 dimensions):
-      - Frame brightness statistics (8 dims)
-      - Color channel statistics (12 dims)
-      - Edge density statistics (8 dims)
-      - Saturation statistics (12 dims)
+      - Brightness statistics (10 dims)
+      - Color statistics (10 dims)
+      - Motion/Edge statistics (10 dims)
+      - Temporal variance (10 dims)
     
     PARAMETERS:
       file_path: Path to .mp4 video file
-      n_frames: Number of frames to sample (default: 5 for speed)
+      n_frames: Number of frames to sample (default: 10)
+    
+    RETURNS:
+      Numpy array of 40 features extracted from the video
     """
     try:
         import cv2
@@ -540,7 +543,7 @@ def extract_video_features_from_file(file_path: str, n_frames: int = 5) -> np.nd
         raise FeatureExtractionError(f"Too few frames: {file_path}")
     
     # Sample evenly spaced frames
-    frame_indices = set(np.linspace(0, total_frames - 1, n_frames, dtype=int))
+    frame_indices = list(np.linspace(0, total_frames - 1, min(n_frames, total_frames), dtype=int))
     
     frames = []
     for idx in range(total_frames):
@@ -548,7 +551,8 @@ def extract_video_features_from_file(file_path: str, n_frames: int = 5) -> np.nd
         if not ret:
             break
         if idx in frame_indices:
-            frame = cv2.resize(frame, (32, 32))  # Small for speed
+            # Resize for consistency and speed
+            frame = cv2.resize(frame, (64, 64))
             frames.append(frame)
     
     cap.release()
@@ -556,52 +560,66 @@ def extract_video_features_from_file(file_path: str, n_frames: int = 5) -> np.nd
     if len(frames) < 1:
         raise FeatureExtractionError(f"No frames extracted: {file_path}")
     
-    # Extract features from frames
-    features = []
+    # Extract features from sampled frames
+    brightness_stats = []
+    color_stats = []
+    edge_stats = []
+    temporal_stats = []
     
-    for frame in frames:
-        # Convert to HSV for brightness and saturation
+    # Process each frame
+    for i, frame in enumerate(frames):
+        # Convert color spaces
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         
-        # Brightness (V channel) statistics
-        v = hsv[:, :, 2].astype(float)
-        features.extend([
-            np.mean(v), np.std(v), np.min(v), np.max(v),
-            np.median(v), np.percentile(v, 25), np.percentile(v, 75),
-            np.var(v),
+        # 1. Brightness (V channel in HSV) - stats across pixels
+        v_channel = hsv[:, :, 2].astype(float)
+        brightness_stats.extend([
+            np.mean(v_channel), np.std(v_channel),
+            np.min(v_channel), np.max(v_channel),
+            np.median(v_channel),
         ])
         
-        # Color channel statistics (BGR)
-        for c in range(3):
-            ch = frame[:, :, c].astype(float)
-            features.extend([
-                np.mean(ch), np.std(ch), np.min(ch), np.max(ch)
-            ])
-        
-        # Edge density
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 30, 100)
-        edge_density = np.count_nonzero(edges) / edges.size
-        features.extend([
-            edge_density, edge_density, edge_density, edge_density,
+        # 2. Color statistics (from grayscale)
+        gray_f = gray.astype(float)
+        color_stats.extend([
+            np.mean(gray_f), np.std(gray_f),
+            np.min(gray_f), np.max(gray_f),
+            np.percentile(gray_f, 75),
         ])
         
-        # Saturation statistics (S channel)
-        s = hsv[:, :, 1].astype(float)
-        features.extend([
-            np.mean(s), np.std(s), np.min(s), np.max(s),
-            np.median(s), np.percentile(s, 25), np.percentile(s, 75),
-            np.var(s),
+        # 3. Edge detection and texture
+        edges = cv2.Canny(gray, 50, 150)
+        edge_density = np.count_nonzero(edges) / (edges.shape[0] * edges.shape[1])
+        
+        # Saturation as measure of color intensity
+        s_channel = hsv[:, :, 1].astype(float)
+        
+        edge_stats.extend([
+            edge_density, np.mean(s_channel), np.std(s_channel),
+            np.max(s_channel), np.percentile(s_channel, 75),
         ])
     
-    # Aggregate across frames (average or use first set)
-    # Total computed: n_frames * ~56 features
-    # Reduce to 40 dims
-    features_arr = np.array(features[:40])  # Take first 40
+    # Aggregate statistics across all frames
+    if len(brightness_stats) > 0:
+        temporal_stats.extend([
+            np.mean(brightness_stats), np.std(brightness_stats),
+            np.mean(color_stats), np.std(color_stats),
+            np.mean(edge_stats), np.std(edge_stats),
+            np.max(brightness_stats), np.max(color_stats),
+            np.max(edge_stats), np.min(brightness_stats),
+        ])
+    else:
+        temporal_stats = [0.0] * 10
     
-    # Ensure we have exactly 40 features
+    # Combine all features
+    all_features = brightness_stats + color_stats + edge_stats + temporal_stats
+    
+    # Ensure exactly 40 features
+    features_arr = np.array(all_features[:40], dtype=np.float32)
+    
     if len(features_arr) < 40:
-        features_arr = np.pad(features_arr, (0, 40 - len(features_arr)), mode='constant')
+        features_arr = np.pad(features_arr, (0, 40 - len(features_arr)), mode='constant', constant_values=0.0)
     
     return features_arr.astype(np.float32)
 

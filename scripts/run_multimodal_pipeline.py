@@ -74,6 +74,7 @@ from ravdess.data import build_metadata_dataframe
 from ravdess.features import build_feature_table, build_video_feature_table, save_feature_table
 from ravdess.split import make_simple_stratified_split, make_actorwise_splits
 from ravdess.models import train_and_evaluate_models
+from ravdess.eda import run_basic_eda
 
 
 def combine_audio_video_features(
@@ -107,34 +108,15 @@ def combine_audio_video_features(
     """
     print("\n[4/7] Combining audio + video features...")
     
-    # Create a mapping of actor+emotion → features
-    # This is how we can match corresponding audio/video pairs
-    
-    # Get emotions that have both audio and video files
-    audio_emotions = set(audio_features['emotion'].unique())
-    video_emotions = set(video_features['emotion'].unique())
-    common_emotions = audio_emotions & video_emotions
-    
-    print(f"  Audio files: {len(audio_features)} files")
-    print(f"  Video files: {len(video_features)} files")
-    print(f"  Common emotions: {common_emotions}")
-    
-    # Create combined features for both audio and video
-    combined_rows = []
-    
-    # Strategy: For each unique combination of (emotion, actor),
-    # if we have both audio and video: combine them
-    # Otherwise: use what we have
-    
-    for emotion in sorted(common_emotions):
-        audio_emotion = audio_features[audio_features['emotion'] == emotion]
-        video_emotion = video_features[video_features['emotion'] == emotion]
+    # Check if video features were successfully extracted
+    if video_features.empty:
+        print(f"  ⚠ WARNING: No video features extracted. Using audio features only (padded with zeros).")
+        print(f"  Audio files: {len(audio_features)} files")
+        print(f"  Video files: 0 files (all failed)")
         
-        # For each audio file with this emotion
-        for idx, audio_row in audio_emotion.iterrows():
-            # Try to find matching video file (same emotion, same actor ideally)
-            matching_videos = video_emotion[video_emotion['actor'] == audio_row['actor']]
-            
+        # If video extraction failed, use audio features padded with zeros for video part
+        combined_rows = []
+        for idx, audio_row in audio_features.iterrows():
             combined_row = {
                 'path_audio': audio_row['path'],
                 'emotion': audio_row['emotion'],
@@ -144,26 +126,73 @@ def combine_audio_video_features(
             }
             
             # Add audio features
-            audio_feats = [audio_row[f'f_{i:03d}'] for i in range(40)]
-            for i, val in enumerate(audio_feats):
-                combined_row[f'a_{i:03d}'] = val
+            for i in range(40):
+                combined_row[f'a_{i:03d}'] = audio_row[f'f_{i:03d}']
             
-            # Add video features (if matching video exists)
-            if len(matching_videos) > 0:
-                video_row = matching_videos.iloc[0]
-                combined_row['path_video'] = video_row['path']
-                video_feats = [video_row[f'v_{i:03d}'] for i in range(40)]
-                for i, val in enumerate(video_feats):
-                    combined_row[f'v_{i:03d}'] = val
-            else:
-                # No matching video: use zeros
-                combined_row['path_video'] = None
-                for i in range(40):
-                    combined_row[f'v_{i:03d}'] = 0.0
+            # Pad with zeros for video features (empty extraction)
+            for i in range(40):
+                combined_row[f'v_{i:03d}'] = 0.0
             
             combined_rows.append(combined_row)
-    
-    combined_df = pd.DataFrame(combined_rows)
+        
+        combined_df = pd.DataFrame(combined_rows)
+    else:
+        # Video extraction succeeded - combine audio and video
+        print(f"  Audio files: {len(audio_features)} files")
+        print(f"  Video files: {len(video_features)} files")
+        
+        # Get emotions that have both audio and video files
+        audio_emotions = set(audio_features['emotion'].unique())
+        video_emotions = set(video_features['emotion'].unique())
+        common_emotions = audio_emotions & video_emotions
+        
+        print(f"  Common emotions: {common_emotions}")
+        
+        # Create combined features for both audio and video
+        combined_rows = []
+        
+        # Strategy: For each unique combination of (emotion, actor),
+        # if we have both audio and video: combine them
+        # Otherwise: use what we have
+        
+        for emotion in sorted(common_emotions):
+            audio_emotion = audio_features[audio_features['emotion'] == emotion]
+            video_emotion = video_features[video_features['emotion'] == emotion]
+            
+            # For each audio file with this emotion
+            for idx, audio_row in audio_emotion.iterrows():
+                # Try to find matching video file (same emotion, same actor ideally)
+                matching_videos = video_emotion[video_emotion['actor'] == audio_row['actor']]
+                
+                combined_row = {
+                    'path_audio': audio_row['path'],
+                    'emotion': audio_row['emotion'],
+                    'emotion_code': audio_row['emotion_code'],
+                    'actor': audio_row['actor'],
+                    'gender': audio_row['gender'],
+                }
+                
+                # Add audio features
+                audio_feats = [audio_row[f'f_{i:03d}'] for i in range(40)]
+                for i, val in enumerate(audio_feats):
+                    combined_row[f'a_{i:03d}'] = val
+                
+                # Add video features (if matching video exists)
+                if len(matching_videos) > 0:
+                    video_row = matching_videos.iloc[0]
+                    combined_row['path_video'] = video_row['path']
+                    video_feats = [video_row[f'v_{i:03d}'] for i in range(40)]
+                    for i, val in enumerate(video_feats):
+                        combined_row[f'v_{i:03d}'] = val
+                else:
+                    # No matching video: use zeros
+                    combined_row['path_video'] = None
+                    for i in range(40):
+                        combined_row[f'v_{i:03d}'] = 0.0
+                
+                combined_rows.append(combined_row)
+        
+        combined_df = pd.DataFrame(combined_rows)
     
     # Save combined features
     combined_output = output_dir / "combined_features.csv"
@@ -195,42 +224,96 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    print("\n" + "="*70)
+    print("MULTIMODAL EMOTION RECOGNITION PIPELINE - AUDIO + VIDEO")
+    print("="*70)
+    
     # [1/7] Parse metadata
     print("\n[1/7] Parsing metadata for all 7,356 files...")
-    metadata = build_metadata_dataframe(archive_root, include_video=True)
-    print(f"  ✓ Parsed: {len(metadata)} files")
+    try:
+        metadata = build_metadata_dataframe(archive_root, include_video=True)
+        print(f"  ✓ Parsed: {len(metadata)} files")
+        print(f"    - Audio (.wav): {len(metadata[metadata['extension'] == '.wav'])} files")
+        print(f"    - Video (.mp4): {len(metadata[metadata['extension'] == '.mp4'])} files")
+    except Exception as e:
+        print(f"  ✗ Error parsing metadata: {e}")
+        return
     metadata.to_csv(output_dir / "metadata.csv", index=False)
     
+    # Run EDA on parsed metadata (saves plots & CSVs)
+    try:
+        print("\n[2/7] Running EDA on metadata (saving plots to eda/)...")
+        run_basic_eda(metadata, output_dir / "eda")
+        print("  ✓ EDA saved:", output_dir / "eda")
+    except Exception as e:
+        print(f"  ⚠ EDA failed: {e}")
     # [2/7] Extract audio features
     print("\n[2/7] Extracting audio features from 2,452 .wav files...")
-    audio_features, failed_audio = build_feature_table(metadata, progress=True)
-    print(f"  ✓ Extracted: {len(audio_features)} audio files")
-    if failed_audio:
-        print(f"  ⚠ Failed: {len(failed_audio)} files")
+    try:
+        audio_features, failed_audio = build_feature_table(metadata, progress=True)
+        print(f"  ✓ Extracted: {len(audio_features)} audio files")
+        if failed_audio:
+            print(f"  ⚠ Failed: {len(failed_audio)} files")
+    except Exception as e:
+        print(f"  ✗ Error extracting audio: {e}")
+        return
     save_feature_table(audio_features, output_dir / "audio_features.csv")
     
     # [3/7] Extract video features
     print("\n[3/7] Extracting video features from 4,904 .mp4 files...")
-    print("  (This will take longer - processing motion, color, edges)")
-    video_features, failed_video = build_video_feature_table(metadata, progress=True)
-    print(f"  ✓ Extracted: {len(video_features)} video files")
-    if failed_video:
-        print(f"  ⚠ Failed: {len(failed_video)} files")
-    save_feature_table(video_features, output_dir / "video_features.csv")
+    print("  (Processing motion, brightness, color, edge features)")
+    try:
+        video_features, failed_video = build_video_feature_table(metadata, progress=True)
+        print(f"  ✓ Extracted: {len(video_features)} video files")
+        if failed_video:
+            print(f"  ⚠ Failed: {len(failed_video)} files")
+    except Exception as e:
+        print(f"  ✗ Error extracting video: {e}")
+        print("  Note: OpenCV might not be installed. Run: pip install opencv-python")
+        # Create empty video_features DataFrame to continue pipeline
+        video_features = pd.DataFrame()
+    
+    # Save video features even if empty (useful for logging)
+    if not video_features.empty:
+        save_feature_table(video_features, output_dir / "video_features.csv")
+    else:
+        print("  ⚠ No video features to save (extraction failed)")
     
     # [4/7] Combine features
     combined_features = combine_audio_video_features(
         audio_features, video_features, output_dir
     )
     
+    # Run EDA on combined multimodal features (emotion/actor distributions)
+    try:
+        print("\n[4.5/7] Running EDA on combined multimodal features (saving plots to eda_combined/)...")
+        # Only run EDA if we have the required columns
+        required_cols = ['emotion', 'emotion_code', 'actor', 'gender']
+        available_cols = [col for col in required_cols if col in combined_features.columns]
+        if available_cols:
+            combined_meta = combined_features[available_cols]
+            run_basic_eda(combined_meta, output_dir / "eda_combined")
+            print("  ✓ Combined EDA saved:", output_dir / "eda_combined")
+        else:
+            print(f"  ⚠ Skipping EDA: required columns not found in combined_features")
+    except Exception as e:
+        print(f"  ⚠ Combined EDA failed: {e}")
+    
     # [5/7] Split data for multimodal features (80 dimensions)
     print("\n[5/7] Splitting data for 80-dimensional combined features...")
     
-    # Create feature matrix for splitting
-    X = pd.DataFrame({
-        f"f_{i:03d}": combined_features.apply(lambda row: row['features'][i], axis=0)
-        for i in range(80)
-    })
+    # Create feature matrix for splitting (extract from a_* and v_* columns)
+    X = pd.DataFrame()
+    
+    # Add audio features (first 40)
+    for i in range(40):
+        X[f"f_{i:03d}"] = combined_features[f'a_{i:03d}']
+    
+    # Add video features (next 40)
+    for i in range(40):
+        X[f"f_{i+40:03d}"] = combined_features[f'v_{i:03d}']
+    
+    # Add metadata for splitting
     X['emotion'] = combined_features['emotion']
     X['actor'] = combined_features['actor']
     

@@ -21,17 +21,27 @@ Your emotion recognition system processes **7,356 files** (2,452 audio + 4,904 v
 
 ---
 
-## 🚀 Quick Start
+### Quick Start (Multimodal)
 
-### Make a Prediction
+Run the full multimodal pipeline (audio + video):
+
+```bash
+python scripts/run_multimodal_pipeline.py --archive-root archive --output-dir outputs_multimodal
+```
+
+Make a prediction with a trained multimodal model:
 
 ```python
 import joblib
-from src.ravdess.features import extract_features_from_file
+from src.ravdess.features import extract_features_from_file, extract_video_features_from_file
+import numpy as np
 
-model = joblib.load('outputs_all_files_with_video/models/svm_rbf.joblib')
-features = extract_features_from_file('audio.wav')
-emotion = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'][model.predict([features])[0]]
+model = joblib.load('outputs_multimodal/models/svm_rbf.joblib')
+audio_feats = extract_features_from_file('audio.wav')
+video_feats = extract_video_features_from_file('video.mp4')
+combined = np.concatenate([audio_feats, video_feats])
+emotions = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
+emotion = emotions[model.predict([combined])[0]]
 print(f"Emotion: {emotion}")
 ```
 
