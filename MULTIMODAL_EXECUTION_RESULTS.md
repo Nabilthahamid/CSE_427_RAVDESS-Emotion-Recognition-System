@@ -9,16 +9,17 @@
 
 ## 📊 Dataset Summary
 
-| Metric | Value |
-|--------|-------|
-| Total Files Parsed | 7,356 |
-| Audio Files (.wav) | 2,452 |
-| Video Files (.mp4) | 4,904 |
-| Emotions | 8 (neutral, calm, happy, sad, angry, fearful, disgust, surprised) |
-| Actors | 24 |
-| Dataset Types | Speech + Song |
+| Metric             | Value                                                             |
+| ------------------ | ----------------------------------------------------------------- |
+| Total Files Parsed | 7,356                                                             |
+| Audio Files (.wav) | 2,452                                                             |
+| Video Files (.mp4) | 4,904                                                             |
+| Emotions           | 8 (neutral, calm, happy, sad, angry, fearful, disgust, surprised) |
+| Actors             | 24                                                                |
+| Dataset Types      | Speech + Song                                                     |
 
 ### Emotion Distribution (Audio Files)
+
 - Neutral: 564
 - Calm: 1,128
 - Happy: 1,128
@@ -33,14 +34,15 @@
 ## 🔧 Multimodal Feature Architecture
 
 ### Combined Features Dimension: 80-D
+
 - **Audio Features (40-D)**: MFCC-based acoustic features
   - Columns: a_000 to a_039
-  
 - **Video Features (40-D)**: Visual features from sampled frames
   - Columns: v_000 to v_039
   - Features: brightness (V-channel), color (BGR), edges (Canny), saturation (S-channel)
 
 ### Combined DataFrame Structure
+
 - **Rows**: 2,452 (audio files)
 - **Columns**: 86 (path_audio + emotion + emotion_code + actor + gender + 40 audio + 40 video)
 - **File**: outputs_multimodal/combined_features.csv
@@ -51,13 +53,14 @@
 
 ### Best Performing Models (Test Set: 520 samples)
 
-| Model | Accuracy | F1-Macro | F1-Weighted |
-|-------|----------|----------|-------------|
-| **Random Forest** | **43.85%** | 0.425 | 0.436 |
-| MLP Neural Network | 43.65% | 0.426 | 0.437 |
-| SVM (RBF) | 39.62% | 0.377 | 0.394 |
+| Model              | Accuracy   | F1-Macro | F1-Weighted |
+| ------------------ | ---------- | -------- | ----------- |
+| **Random Forest**  | **43.85%** | 0.425    | 0.436       |
+| MLP Neural Network | 43.65%     | 0.426    | 0.437       |
+| SVM (RBF)          | 39.62%     | 0.377    | 0.394       |
 
 ### Data Split (Actor-Wise)
+
 - Training: 1,412 samples (60%)
 - Validation: 520 samples (20%)
 - Test: 520 samples (20%)
@@ -112,21 +115,25 @@ outputs_multimodal/
 ## 📊 Visualizations Generated
 
 ### 1. **Emotion Distribution** (EDA)
+
 - Shows balanced dataset with 8 emotion classes
 - Calm/Happy/Sad/Angry/Fearful: 1,128 each
 - Neutral: 564, Disgust/Surprised: 576 each
 
 ### 2. **Audio Duration by Emotion** (EDA)
+
 - Box plot showing duration variation per emotion
 - Most emotions: 3-5 seconds
 - Used for feature extraction context
 
 ### 3. **Model Comparison (Macro F1)**
+
 - Random Forest: 0.425 F1
 - MLP: 0.426 F1
 - SVM: 0.377 F1
 
 ### 4. **Confusion Matrices** (Per Model)
+
 - MLP: Best performance on Angry, Calm, Happy, Sad emotions
 - Random Forest: Good balanced performance across emotions
 - Shows cross-emotion confusions (e.g., Fearful ↔ Angry, Sad ↔ Angry)
@@ -136,6 +143,7 @@ outputs_multimodal/
 ## 🔍 Feature Extraction Details
 
 ### Audio Feature Extraction (2,452 files)
+
 - **Time**: ~41 seconds
 - **Features**: 40-dimensional MFCC-based vectors
 - **Sampling Rate**: 22,050 Hz
@@ -143,10 +151,11 @@ outputs_multimodal/
 - **Success Rate**: 100% (2,452/2,452)
 
 ### Video Feature Extraction (4,904 files)
+
 - **Time**: ~19 minutes (extremely computationally intensive)
 - **Features**: 40-dimensional visual vectors
 - **Sampling**: 10 evenly-spaced frames per video
-- **Feature Types**: 
+- **Feature Types**:
   - Brightness statistics (V-channel)
   - Color information (BGR channels)
   - Edge density (Canny edge detection)
@@ -159,11 +168,12 @@ outputs_multimodal/
 ## ⚠️ Important Observations
 
 ### Performance Comparison
-| System | Accuracy |
-|--------|----------|
-| Audio-Only (baseline) | 78.21% |
-| Multimodal (80-D) | 43.65% |
-| **Change** | **-34.56%** (SIGNIFICANT DROP) |
+
+| System                | Accuracy                       |
+| --------------------- | ------------------------------ |
+| Audio-Only (baseline) | 78.21%                         |
+| Multimodal (80-D)     | 43.65%                         |
+| **Change**            | **-34.56%** (SIGNIFICANT DROP) |
 
 ### Possible Reasons for Performance Drop:
 
@@ -171,7 +181,7 @@ outputs_multimodal/
    - May not capture emotion-relevant visual cues effectively
    - Ideal: Use pre-trained CNN features (e.g., VGG, ResNet) instead
 
-2. **Feature Scaling Issues**: 
+2. **Feature Scaling Issues**:
    - Audio features normalized differently from video
    - Video values often 0-255 (color intensities)
    - Audio features typically normalized to [-1, 1]
@@ -192,6 +202,7 @@ outputs_multimodal/
 ## 🎬 Next Steps for Improvement
 
 1. **Use Pre-trained Visual Features**:
+
    ```python
    # Extract features from pre-trained CNN instead of manual features
    from torchvision.models import resnet50
@@ -199,6 +210,7 @@ outputs_multimodal/
    ```
 
 2. **Improve Feature Scaling**:
+
    ```python
    from sklearn.preprocessing import StandardScaler
    scaler = StandardScaler()
@@ -223,12 +235,14 @@ outputs_multimodal/
 ## 📦 Files & Paths
 
 ### Key Output Files:
+
 - Combined Features: [combined_features.csv](outputs_multimodal/combined_features.csv)
 - Model Metrics: [model_metrics_multimodal.csv](outputs_multimodal/models/model_metrics.csv)
 - Best Model: [random_forest.joblib](outputs_multimodal/models/random_forest.joblib)
 - Visualizations: [models/](outputs_multimodal/models/) folder
 
 ### Command to Run:
+
 ```bash
 python scripts/run_multimodal_pipeline.py --archive-root archive --output-dir outputs_multimodal
 ```
@@ -249,9 +263,10 @@ The multimodal emotion recognition system has been **fully implemented and execu
 ✅ **All outputs saved**: 11 files/folders in outputs_multimodal/
 
 **Performance**: 43.65% accuracy (audio-only baseline: 78.21%)
+
 - Current drop suggests video features need improvement via pre-trained models or better feature engineering
 - System is robust and handles all pipeline stages successfully
 
 ---
 
-*Full multimodal emotion recognition pipeline completed successfully!*
+_Full multimodal emotion recognition pipeline completed successfully!_
